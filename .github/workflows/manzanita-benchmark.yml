@@ -1,0 +1,52 @@
+name: Manzanita benchmark
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  archive:
+    name: ${{ matrix.runner }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [macos-26, manzanita-standard]
+    env:
+      DEVELOPER_DIR: /Applications/Xcode.app/Contents/Developer
+      XCODE_PROJECT: Rectangle.xcodeproj
+      XCODE_SCHEME: Rectangle
+      CODE_SIGN_IDENTITY: "-"
+      BUILD_DIR: build
+      XCODE_ARCHIVE: Rectangle.xcarchive
+      APP_NAME: Rectangle.app
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Record runner contract
+        run: |
+          sw_vers
+          xcodebuild -version
+          uname -m
+          sysctl -n hw.logicalcpu
+          sysctl -n hw.memsize
+      - name: Archive
+        run: xcodebuild -project "$XCODE_PROJECT" -scheme "$XCODE_SCHEME" archive CODE_SIGN_IDENTITY="$CODE_SIGN_IDENTITY" -archivePath "$BUILD_DIR/$XCODE_ARCHIVE"
+      - name: Export
+        run: |
+          plutil -convert xml1 - -o exportOptions.plist <<'EOF'
+          {
+            "destination": "export",
+            "method": "mac-application"
+          }
+          EOF
+          xcodebuild -exportArchive -archivePath "$BUILD_DIR/$XCODE_ARCHIVE" -exportPath "$BUILD_DIR" -exportOptionsPlist exportOptions.plist
+      - name: Ad-hoc resign and package
+        run: |
+          codesign --force --deep -s "$CODE_SIGN_IDENTITY" "$BUILD_DIR/$APP_NAME"
+          hdiutil create -srcdir "$BUILD_DIR" -volname Rectangle Rectangle.dmg
+
